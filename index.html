@@ -1,0 +1,1607 @@
+<title>Bavarchi</title>
+<meta name="description" content="Bavarchi — a shared kitchen ledger: menu, rates, cost, and sales orders, with a month-end P&L to settle up.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Karla:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Optional: only used when this file is self-hosted outside Claude (see README.md). -->
+<!-- Harmless here — if these can't load, or firebaseConfig below isn't filled in, the app falls back automatically. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  // ---- REPLACE with your own Firebase project's config to self-host with real, persistent storage ----
+  // Get this from: Firebase Console → Project settings → General → Your apps → SDK setup and configuration.
+  // Leave as-is if you're not self-hosting (e.g. running inside Claude) — it's ignored automatically.
+  window.firebaseConfig = {
+    apiKey: "REPLACE_ME",
+    authDomain: "REPLACE_ME.firebaseapp.com",
+    projectId: "REPLACE_ME",
+    storageBucket: "REPLACE_ME.appspot.com",
+    messagingSenderId: "REPLACE_ME",
+    appId: "REPLACE_ME"
+  };
+</script>
+
+<style>
+  :root {
+    --paper: #F6F1E2;
+    --paper-raised: #FCF9F0;
+    --ink: #26261F;
+    --ink-soft: #6B6858;
+    --line: #DCD2B4;
+    --line-strong: #C7BB94;
+    --basil: #3E6B4A;
+    --basil-ink: #F4F8F1;
+    --rust: #A8492B;
+    --rust-ink: #FBEFE8;
+    --mustard: #B4821C;
+    --mustard-ink: #FCF3DE;
+    --brown: #8B5A2B;
+    --teal: #3E7568;
+    --indigo: #4F5A8C;
+    --rose: #A8466F;
+    --shadow: 0 1px 0 rgba(38,38,31,0.06), 0 8px 24px -12px rgba(38,38,31,0.25);
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1D1C17; --paper-raised: #26251E; --ink: #EDE7D6; --ink-soft: #A39C84;
+      --line: #3B3929; --line-strong: #514D37; --basil: #74A683; --basil-ink: #12241A;
+      --rust: #D9835F; --rust-ink: #2B1712; --mustard: #E0B44E; --mustard-ink: #2A2110;
+      --brown: #C99A63; --teal: #7FBBAC; --indigo: #9CA6D9; --rose: #D98FB0;
+      --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1D1C17; --paper-raised: #26251E; --ink: #EDE7D6; --ink-soft: #A39C84;
+    --line: #3B3929; --line-strong: #514D37; --basil: #74A683; --basil-ink: #12241A;
+    --rust: #D9835F; --rust-ink: #2B1712; --mustard: #E0B44E; --mustard-ink: #2A2110;
+    --brown: #C99A63; --teal: #7FBBAC; --indigo: #9CA6D9; --rose: #D98FB0;
+    --shadow: 0 1px 0 rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.6);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Karla", -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: "Space Mono", "SF Mono", Menlo, monospace; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+  ::selection { background: var(--basil); color: var(--basil-ink); }
+  :focus-visible { outline: 2px solid var(--basil); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  .shell { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 18px; border-bottom: 2px solid var(--ink); margin-bottom: 24px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .mark { font-size: 1.5rem; }
+  .brand-text h1 { font-size: 1.15rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .brand-text p { margin: 2px 0 0; font-size: 0.72rem; color: var(--ink-soft); letter-spacing: 0.02em; }
+  .masthead .date { font-size: 0.8rem; color: var(--ink-soft); letter-spacing: 0.03em; }
+  .session-line { display: flex; align-items: center; gap: 14px; font-size: 0.85rem; flex-wrap: wrap; }
+  .session-line .who { color: var(--ink-soft); }
+  .ghost-btn { background: none; border: 1px solid var(--line-strong); color: var(--ink); padding: 7px 14px; border-radius: 3px; font-size: 0.8rem; letter-spacing: 0.02em; transition: border-color .15s, background .15s; }
+  .ghost-btn:hover { border-color: var(--ink); background: var(--paper-raised); }
+
+  /* ---------- Auth screen ---------- */
+  .hero { text-align: center; max-width: 560px; margin: 4px auto 0; padding: 0 12px; }
+  .hero-banner { width: 100%; max-width: 540px; margin: 0 auto 22px; border-radius: 22px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); background: linear-gradient(180deg, var(--paper-raised), var(--paper)); }
+  .hero-banner svg { display: block; width: 100%; height: auto; }
+  .hero-title { font-size: 2rem; letter-spacing: 0.1em; margin-bottom: 10px; }
+  .hero-tag { font-size: 0.92rem; color: var(--ink-soft); margin: 0 0 26px; line-height: 1.55; }
+  .hero-features { display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; margin-bottom: 6px; }
+  .hero-feature { display: flex; flex-direction: column; align-items: center; gap: 7px; font-size: 0.72rem; color: var(--ink-soft); letter-spacing: 0.02em; max-width: 130px; line-height: 1.4; }
+  .hero-feature svg { color: var(--basil); flex-shrink: 0; }
+
+  .auth-wrap { display: flex; flex-direction: column; align-items: center; padding: 8px 0 40px; }
+  .ticket { width: 100%; max-width: 400px; background: var(--paper-raised); border: 1px solid var(--line); box-shadow: var(--shadow); position: relative; padding: 30px 28px 28px; }
+  .ticket::before, .ticket::after { content: ""; position: absolute; left: 0; right: 0; height: 8px; background-image: radial-gradient(circle at 6px 4px, var(--paper) 4px, transparent 4.5px); background-size: 16px 8px; background-repeat: repeat-x; }
+  .ticket::before { top: -4px; }
+  .ticket::after { bottom: -4px; transform: rotate(180deg); }
+  .ticket .intro { font-size: 0.82rem; color: var(--ink-soft); margin: 0 0 18px; line-height: 1.5; }
+
+  .tabs { display: flex; gap: 2px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+  .tab { flex: 1; background: none; border: none; padding: 10px 4px 12px; font-size: 0.82rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--basil); font-weight: 700; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+  .field input, .field select, .field textarea { background: var(--paper); border: 1px solid var(--line-strong); border-radius: 3px; padding: 9px 11px; font-size: 0.92rem; color: var(--ink); }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--basil); }
+  .field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .field-row .field { flex: 1; min-width: 130px; }
+
+  .primary-btn { width: 100%; background: var(--basil); color: var(--basil-ink); border: none; padding: 11px 16px; border-radius: 3px; font-size: 0.88rem; font-weight: 700; letter-spacing: 0.03em; margin-top: 4px; }
+  .primary-btn:hover { filter: brightness(1.06); }
+  .primary-btn:disabled { opacity: 0.6; cursor: default; }
+
+  .auth-msg { font-size: 0.82rem; padding: 9px 12px; border-radius: 3px; margin-bottom: 14px; display: none; }
+  .auth-msg.show { display: block; }
+  .auth-msg.error { background: var(--rust-ink); color: var(--rust); }
+  .auth-msg.info { background: var(--mustard-ink); color: var(--mustard); }
+
+  .demo-row { text-align: center; margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line-strong); }
+  .demo-row p { font-size: 0.78rem; color: var(--ink-soft); margin: 0 0 10px; }
+  .demo-link { background: none; border: none; color: var(--basil); font-size: 0.82rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+
+  .notice-bar { font-size: 0.78rem; color: var(--ink-soft); background: var(--paper-raised); border: 1px dashed var(--line-strong); border-radius: 4px; padding: 9px 14px; margin-bottom: 18px; }
+
+  /* ---------- App screen ---------- */
+  .app-layout { display: block; }
+  .app-main { width: 100%; }
+  .menu-trigger svg { vertical-align: -3px; margin-right: 6px; }
+  .nav-backdrop { position: fixed; inset: 0; background: rgba(20,18,10,0.4); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 55; }
+  .nav-backdrop.show { opacity: 1; pointer-events: auto; }
+  .side-nav { display: flex; flex-direction: column; gap: 2px; width: 250px; max-width: 82vw; position: fixed; top: 0; left: 0; height: 100vh; background: var(--paper-raised); border-right: 1px solid var(--line); box-shadow: var(--shadow); padding: 18px 16px 20px; z-index: 60; transform: translateX(-105%); transition: transform .22s ease; overflow-y: auto; }
+  .side-nav.open { transform: translateX(0); }
+  .side-nav-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .side-nav-head span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+  .nav-close-btn { background: none; border: none; color: var(--ink-soft); font-size: 1.05rem; line-height: 1; padding: 4px 6px; border-radius: 3px; }
+  .nav-close-btn:hover { background: var(--paper); color: var(--ink); }
+  .side-nav-item { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: none; border-left: 3px solid transparent; padding: 9px 10px 9px 12px; font-size: 0.84rem; color: var(--ink-soft); border-radius: 2px; }
+  .side-nav-item .nav-icon { flex-shrink: 0; color: var(--line-strong); }
+  .side-nav-item .nav-num { font-size: 0.62rem; color: var(--line-strong); margin-right: -2px; }
+  .side-nav-item:hover { background: var(--paper); }
+  .side-nav-item[aria-selected="true"] { color: var(--ink); font-weight: 700; border-left-color: var(--basil); background: var(--paper); }
+  .side-nav-item[aria-selected="true"] .nav-num, .side-nav-item[aria-selected="true"] .nav-icon { color: var(--basil); }
+  .side-nav-sep { height: 1px; background: var(--line); margin: 6px 4px 10px; }
+
+  .quick-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+  .quick-link-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 14px 14px 12px; font-size: 0.82rem; color: var(--ink); transition: border-color .15s, background .15s; }
+  .quick-link-card:hover { border-color: var(--basil); background: var(--paper); }
+  .quick-link-card .qc-icon { color: var(--basil); }
+  .quick-link-card .qc-title { font-weight: 700; }
+  .quick-link-card .qc-desc { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.4; }
+  .home-sub { font-size: 0.82rem; color: var(--ink-soft); margin: -8px 0 16px; }
+
+  .chart-section { margin-bottom: 26px; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px 6px; }
+  .chart-section h3 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
+  .chart-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.72rem; color: var(--ink-soft); margin-bottom: 8px; }
+  .chart-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .chart-svg-holder svg { display: block; width: 100%; height: auto; }
+  .panel-head { margin-bottom: 16px; }
+  .panel-head h2 { font-size: 1rem; }
+  .panel-head p { margin: 4px 0 0; font-size: 0.8rem; color: var(--ink-soft); }
+
+  .cat-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex-shrink: 0; }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; justify-content: space-between; }
+  .month-picker { display: flex; align-items: center; gap: 8px; }
+  .month-picker label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); }
+  .month-picker input { background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: 3px; padding: 7px 10px; font-size: 0.85rem; }
+  .toolbar-right { display: flex; gap: 10px; align-items: center; }
+  .search-input { background: var(--paper-raised); border: 1px solid var(--line-strong); border-radius: 20px; padding: 6px 14px; font-size: 0.82rem; width: 160px; }
+  .add-btn { background: var(--ink); color: var(--paper); border: none; border-radius: 3px; padding: 9px 16px; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+  .add-btn:hover { background: var(--basil); }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-tile { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; }
+  .stat-tile .n { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .stat-tile .lbl { font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); margin-top: 6px; }
+  .stat-tile.accent .n { color: var(--basil); }
+  .stat-tile.text .n { font-size: 1.05rem; line-height: 1.3; }
+
+  .item-form { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 4px; padding: 20px; margin-bottom: 18px; box-shadow: var(--shadow); }
+  .item-form h3 { font-size: 0.92rem; margin-bottom: 16px; }
+  .amount-preview { font-size: 0.92rem; padding: 9px 11px; background: var(--paper); border: 1px dashed var(--line-strong); border-radius: 3px; }
+  .amount-preview strong { font-variant-numeric: tabular-nums; }
+  .form-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .form-actions .primary-btn { width: auto; padding: 9px 20px; }
+  .form-actions .ghost-btn { padding: 9px 18px; }
+
+  .ledger { border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--paper-raised); }
+  .ledger-head, .entry-row { display: grid; grid-template-columns: 0.85fr 1.6fr 0.7fr 0.8fr 0.9fr 1fr auto; gap: 10px; align-items: center; padding: 11px 16px; }
+  .ledger-head, .menu-row { display: grid; }
+  .menu-head, .menu-row { grid-template-columns: 1.8fr 1fr 0.9fr 0.8fr auto; gap: 10px; align-items: center; padding: 11px 16px; }
+  .ledger-head { font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--line); background: var(--paper); }
+  .entry-row, .menu-row { border-bottom: 1px solid var(--line); font-size: 0.87rem; }
+  .entry-row:last-child, .menu-row:last-child { border-bottom: none; }
+  .entry-row:hover, .menu-row:hover { background: var(--paper); }
+  .item-name { font-weight: 600; }
+  .item-cat { display: block; font-size: 0.7rem; color: var(--ink-soft); margin-top: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .amount-cell { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .by-pill { font-size: 0.7rem; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); padding: 2px 8px; border-radius: 20px; }
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .icon-btn { background: none; border: 1px solid var(--line-strong); color: var(--ink-soft); width: 28px; height: 28px; border-radius: 3px; font-size: 0.85rem; line-height: 1; display: flex; align-items: center; justify-content: center; }
+  .icon-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .icon-btn.danger:hover { border-color: var(--rust); color: var(--rust); }
+
+  .empty-state { text-align: center; padding: 44px 20px; color: var(--ink-soft); }
+  .empty-state .mono { font-size: 1.3rem; display: block; margin-bottom: 8px; color: var(--line-strong); }
+
+  /* report */
+  .report-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+  .report-title h2 { font-size: 1.1rem; }
+  .report-title p { margin: 4px 0 0; font-size: 0.8rem; color: var(--ink-soft); }
+  .report-section { margin-bottom: 26px; }
+  .report-section h3 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
+  .breakdown-table { width: 100%; border-collapse: collapse; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .breakdown-table th, .breakdown-table td { padding: 10px 14px; text-align: left; font-size: 0.85rem; border-bottom: 1px solid var(--line); }
+  .breakdown-table th { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-soft); background: var(--paper); }
+  .breakdown-table td.num, .breakdown-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .breakdown-table tr:last-child td { border-bottom: none; }
+  .breakdown-table tfoot td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: none; }
+  .bar-cell { display: flex; align-items: center; gap: 8px; }
+  .bar-track { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 40px; }
+  .bar-fill { height: 100%; background: var(--basil); }
+  .pnl-pos { color: var(--basil); }
+  .pnl-neg { color: var(--rust); }
+
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(12px); background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: 4px; font-size: 0.82rem; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 20; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media print {
+    .masthead .ghost-btn, .session-line, .side-nav, .nav-backdrop, .toolbar-right, .month-picker .no-print { display: none !important; }
+    .app-layout { display: block; }
+    body { background: #fff; }
+    .breakdown-table { box-shadow: none; }
+  }
+
+  @media (max-width: 700px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+    .ledger-head { display: none; }
+    .entry-row { grid-template-columns: 1fr auto; grid-template-areas: "name actions" "meta meta"; row-gap: 4px; }
+    .entry-row .cell-name { grid-area: name; }
+    .entry-row .row-actions { grid-area: actions; }
+    .entry-row .cell-date, .entry-row .cell-qty, .entry-row .cell-rate, .entry-row .cell-amount, .entry-row .cell-by { grid-area: meta; display: inline; margin-right: 10px; font-size: 0.8rem; }
+    .menu-head { display: none; }
+    .menu-row { grid-template-columns: 1fr auto; }
+  }
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="brand">
+      <span class="mark mono">[ ]</span>
+      <div class="brand-text"><h1>Bavarchi</h1><p>The cook's shared ledger</p></div>
+    </div>
+    <div id="mastheadRight" class="date mono no-print"></div>
+  </header>
+
+  <div id="dbNotice" class="notice-bar" hidden>
+    Live storage isn't connected — running in local demo mode, so nothing added here is saved on refresh. If you're self-hosting this file, fill in <span class="mono">firebaseConfig</span> near the top of the HTML (see README.md).
+  </div>
+
+  <!-- AUTH SCREEN -->
+  <section id="screenAuth" class="auth-wrap">
+    <div class="hero">
+      <div class="hero-banner" aria-hidden="true">
+        <svg viewBox="0 0 600 260" role="img" focusable="false">
+          <defs>
+            <radialGradient id="riceGrad" cx="35%" cy="30%" r="80%">
+              <stop offset="0%" stop-color="var(--mustard-ink)"/>
+              <stop offset="100%" stop-color="var(--mustard)"/>
+            </radialGradient>
+            <radialGradient id="plateGrad" cx="40%" cy="30%" r="75%">
+              <stop offset="0%" stop-color="var(--paper-raised)"/>
+              <stop offset="100%" stop-color="var(--paper)"/>
+            </radialGradient>
+          </defs>
+
+          <rect x="0" y="0" width="600" height="260" fill="url(#plateGrad)"/>
+
+          <!-- steam -->
+          <g fill="none" stroke="var(--ink-soft)" stroke-width="4" stroke-linecap="round" opacity="0.32">
+            <path d="M278 96 C266 78, 288 66, 278 48 C270 34, 288 24, 280 8"/>
+            <path d="M300 92 C288 74, 310 62, 300 44 C292 30, 310 20, 302 4"/>
+            <path d="M322 96 C310 78, 332 66, 322 48 C314 34, 332 24, 324 8"/>
+          </g>
+
+          <!-- plate rim -->
+          <circle cx="300" cy="146" r="98" fill="none" stroke="var(--brown)" stroke-width="3" opacity="0.55"/>
+          <circle cx="300" cy="146" r="91" fill="var(--paper-raised)" stroke="var(--line-strong)" stroke-width="2"/>
+          <circle cx="300" cy="146" r="85" fill="none" stroke="var(--line)" stroke-width="1"/>
+
+          <!-- katoris (bowls) around the rim -->
+          <g>
+            <circle cx="345" cy="87" r="21" fill="var(--rust)" stroke="var(--rust-ink)" stroke-width="1.5" opacity="0.94"/>
+            <ellipse cx="339" cy="80" rx="7" ry="4" fill="var(--rust-ink)" opacity="0.35"/>
+
+            <circle cx="371" cy="163" r="21" fill="var(--basil)" stroke="var(--basil-ink)" stroke-width="1.5" opacity="0.94"/>
+            <ellipse cx="365" cy="156" rx="7" ry="4" fill="var(--basil-ink)" opacity="0.35"/>
+
+            <circle cx="300" cy="216" r="21" fill="var(--teal)" stroke="var(--paper)" stroke-width="1.5" opacity="0.94"/>
+            <ellipse cx="294" cy="209" rx="7" ry="4" fill="var(--paper)" opacity="0.35"/>
+
+            <circle cx="229" cy="163" r="21" fill="var(--rose)" stroke="var(--paper)" stroke-width="1.5" opacity="0.94"/>
+            <ellipse cx="223" cy="156" rx="7" ry="4" fill="var(--paper)" opacity="0.35"/>
+
+            <circle cx="255" cy="87" r="21" fill="var(--brown)" stroke="var(--paper)" stroke-width="1.5" opacity="0.94"/>
+            <ellipse cx="249" cy="80" rx="7" ry="4" fill="var(--paper)" opacity="0.35"/>
+          </g>
+
+          <!-- rice mound, centre -->
+          <circle cx="300" cy="146" r="35" fill="url(#riceGrad)" stroke="var(--mustard-ink)" stroke-width="1"/>
+          <g stroke="var(--mustard-ink)" stroke-width="2" stroke-linecap="round" opacity="0.4">
+            <path d="M286 135l6 5"/><path d="M298 130l6 5"/><path d="M310 136l6 5"/>
+            <path d="M290 150l6 4"/><path d="M306 152l6 4"/>
+          </g>
+
+          <!-- papad -->
+          <circle cx="94" cy="60" r="34" fill="var(--paper)" stroke="var(--line-strong)" stroke-width="2"/>
+          <g stroke="var(--line-strong)" stroke-width="1.3" opacity="0.7">
+            <circle cx="94" cy="60" r="24" fill="none"/>
+            <circle cx="94" cy="60" r="14" fill="none"/>
+            <path d="M94 26v68M60 60h68M71 37l46 46M117 37l-46 46"/>
+          </g>
+
+          <!-- garnish: mint leaf, lime wedge, chilli -->
+          <path d="M60 200c14-10 30-8 36 4-14 10-30 8-36-4z" fill="var(--basil)" opacity="0.85"/>
+          <path d="M60 200c10-3 22-1 28 6" fill="none" stroke="var(--basil-ink)" stroke-width="1" opacity="0.5"/>
+
+          <path d="M520 205a24 24 0 1 1 0-0.1z" fill="var(--mustard)" opacity="0.9"/>
+          <path d="M520 205L520 183M520 205l19-11M520 205l19 11M520 205l-19-11M520 205l-19 11" stroke="var(--mustard-ink)" stroke-width="1" opacity="0.45"/>
+
+          <path d="M528 60c18-6 34 4 36 20-10 14-30 16-42 4-8-8-6-18 6-24z" fill="var(--rust)" opacity="0.92"/>
+          <path d="M528 60c6 4 10 12 8 20" stroke="var(--rust-ink)" stroke-width="1.4" opacity="0.5" fill="none"/>
+          <path d="M524 58c-6-8-4-16 4-20" stroke="var(--basil)" stroke-width="3" stroke-linecap="round" fill="none"/>
+        </svg>
+      </div>
+      <h1 class="hero-title mono">BAVARCHI</h1>
+      <p class="hero-tag">Home of the perfectly plated P&amp;L.</p>
+      <div class="hero-features">
+        <div class="hero-feature">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="5.5"/><circle cx="15" cy="15" r="5.5"/></svg>
+          <span>Menu, Rate &amp; Cost Masters</span>
+        </div>
+        <div class="hero-feature">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v15.5l-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3z"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="8.5" y1="11" x2="15.5" y2="11"/></svg>
+          <span>Daily Sales Orders</span>
+        </div>
+        <div class="hero-feature">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="4.5" y="13" width="3.2" height="6.5" rx="0.5"/><rect x="10.4" y="8.5" width="3.2" height="11" rx="0.5"/><rect x="16.3" y="4.5" width="3.2" height="15" rx="0.5"/></svg>
+          <span>Month-end P&amp;L</span>
+        </div>
+      </div>
+    </div>
+    <div class="ticket">
+      <p class="intro">One shared ledger for your menu and daily sales. You and your partner each sign in with your own account — every entry is tagged with who logged it, so month-end is unambiguous.</p>
+
+      <div id="authForms">
+        <div class="tabs" role="tablist">
+          <button class="tab" id="tabLogin" role="tab" aria-selected="true">Log in</button>
+          <button class="tab" id="tabSignup" role="tab" aria-selected="false">Sign up</button>
+        </div>
+
+        <div id="authMsg" class="auth-msg"></div>
+
+        <form id="formLogin">
+          <div class="field"><label for="loginUser">Username</label><input id="loginUser" autocomplete="username" required></div>
+          <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password" required></div>
+          <button class="primary-btn" type="submit">Log in</button>
+          <p style="text-align:right; margin: 10px 0 0;"><button type="button" id="linkForgot" class="demo-link" style="font-size:.78rem;">Forgot password?</button></p>
+        </form>
+
+        <form id="formSignup" hidden>
+          <div class="field"><label for="suName">Display name</label><input id="suName" autocomplete="name" required></div>
+          <div class="field"><label for="suEmail">Email</label><input id="suEmail" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+          <div class="field"><label for="suUser">Username</label><input id="suUser" autocomplete="username" required pattern="[a-z0-9_]{3,20}" title="3-20 characters: lowercase letters, numbers, underscore"></div>
+          <div class="field-row">
+            <div class="field"><label for="suPass">Password</label><input id="suPass" type="password" autocomplete="new-password" required minlength="4"></div>
+            <div class="field"><label for="suPass2">Confirm</label><input id="suPass2" type="password" autocomplete="new-password" required minlength="4"></div>
+          </div>
+          <div class="field"><label for="suQ">Recovery question</label><input id="suQ" required placeholder="e.g. What's our signature dish?"></div>
+          <div class="field"><label for="suA">Answer</label><input id="suA" required placeholder="Only you and your partner should know this"></div>
+          <button class="primary-btn" type="submit">Create account</button>
+        </form>
+
+        <div class="demo-row">
+          <p>Curious first? Look around with a sample menu and a few days of entries — kept separate from your real ledger.</p>
+          <button id="btnDemo" class="demo-link">Try the demo Bavarchi →</button>
+        </div>
+      </div>
+
+      <div id="forgotWrap" hidden>
+        <h3 class="mono" style="font-size:.9rem; margin-bottom:16px;">Reset password</h3>
+        <div id="forgotMsg" class="auth-msg"></div>
+
+        <form id="forgotStep1">
+          <div class="field"><label for="fpUser">Username</label><input id="fpUser" autocomplete="username" required></div>
+          <button class="primary-btn" type="submit">Continue</button>
+        </form>
+
+        <form id="forgotStep2" hidden>
+          <div class="field">
+            <label>Recovery question</label>
+            <div class="amount-preview" id="fpQuestionText" style="font-size:.85rem;"></div>
+          </div>
+          <div class="field"><label for="fpAnswer">Your answer</label><input id="fpAnswer" required></div>
+          <div class="field-row">
+            <div class="field"><label for="fpNewPass">New password</label><input id="fpNewPass" type="password" autocomplete="new-password" required minlength="4"></div>
+            <div class="field"><label for="fpNewPass2">Confirm</label><input id="fpNewPass2" type="password" autocomplete="new-password" required minlength="4"></div>
+          </div>
+          <button class="primary-btn" type="submit">Reset password</button>
+        </form>
+
+        <div class="demo-row"><button id="btnBackToLogin" class="demo-link">← Back to log in</button></div>
+      </div>
+
+      <div id="signupConfirm" hidden>
+        <h3 class="mono" style="font-size:.9rem; margin-bottom:8px;">Account created</h3>
+        <p style="font-size:.82rem; color:var(--ink-soft); margin:0 0 16px; line-height:1.5;">Bavarchi can't send email on its own, so save these details yourself — copy them into a message to your own inbox or your partner's.</p>
+        <div class="amount-preview mono" id="signupDetailsBox" style="font-size:.82rem; line-height:1.9; margin-bottom:16px; white-space:pre-wrap;"></div>
+        <div class="form-actions" style="margin-bottom:0;">
+          <button class="ghost-btn" type="button" id="btnCopyDetails">Copy details</button>
+          <button class="primary-btn" type="button" id="btnContinueSignup" style="width:auto; padding:9px 20px;">Continue to Bavarchi →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP SCREEN -->
+  <section id="screenApp" hidden>
+    <div class="session-line" style="justify-content:space-between; margin-bottom:16px;">
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <span class="who" id="wsLabel"></span>
+        <button id="btnMenu" class="ghost-btn menu-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="sideNav">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>Menu
+        </button>
+        <button id="btnHome" class="ghost-btn menu-trigger" aria-label="Home">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.2V20h5v-6h2v6h5v-9.8"/></svg>Home
+        </button>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <span class="who">Signed in as <strong id="whoName"></strong></span>
+        <button id="btnLogout" class="ghost-btn">Log out</button>
+      </div>
+    </div>
+
+    <div class="nav-backdrop" id="navBackdrop"></div>
+
+    <div class="app-layout">
+      <nav class="side-nav" id="sideNav" role="tablist" aria-orientation="vertical" aria-label="Screens">
+        <div class="side-nav-head">
+          <span class="mono">Screens</span>
+          <button class="nav-close-btn" id="btnNavClose" aria-label="Close menu">✕</button>
+        </div>
+        <button class="side-nav-item" id="navHome" role="tab" aria-selected="true">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.2V20h5v-6h2v6h5v-9.8"/></svg>
+          Home</button>
+        <div class="side-nav-sep"></div>
+        <button class="side-nav-item" id="navMenuMaster" role="tab" aria-selected="false">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="4.5" cy="6" r="1"/><line x1="8" y1="6" x2="20" y2="6"/><circle cx="4.5" cy="12" r="1"/><line x1="8" y1="12" x2="20" y2="12"/><circle cx="4.5" cy="18" r="1"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
+          <span class="nav-num mono">01</span>Menu Master</button>
+        <button class="side-nav-item" id="navRateMaster" role="tab" aria-selected="false">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="16.3" text-anchor="middle" font-size="11" font-family="'Space Mono',monospace" fill="currentColor">₹</text></svg>
+          <span class="nav-num mono">02</span>Rate Master</button>
+        <button class="side-nav-item" id="navCostMaster" role="tab" aria-selected="false">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="5.5"/><circle cx="15" cy="15" r="5.5"/></svg>
+          <span class="nav-num mono">03</span>Cost Master</button>
+        <button class="side-nav-item" id="navSalesOrder" role="tab" aria-selected="false">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v15.5l-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3z"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="8.5" y1="11" x2="15.5" y2="11"/></svg>
+          <span class="nav-num mono">04</span>Sales Order</button>
+        <button class="side-nav-item" id="navReconciliation" role="tab" aria-selected="false">
+          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4.5" y="13" width="3.2" height="6.5" rx="0.5"/><rect x="10.4" y="8.5" width="3.2" height="11" rx="0.5"/><rect x="16.3" y="4.5" width="3.2" height="15" rx="0.5"/></svg>
+          <span class="nav-num mono">05</span>Reconciliation Dashboard</button>
+      </nav>
+
+      <div class="app-main">
+        <!-- HOME PANEL -->
+        <div id="homePanel">
+          <div class="panel-head"><h2 class="mono">Home</h2></div>
+          <p class="home-sub">Your Bavarchi at a glance — figures for <strong id="homeMonthLabel"></strong>.</p>
+
+          <div class="chart-section">
+            <h3>Monthly P&amp;L — last 6 months</h3>
+            <div class="chart-legend">
+              <span><span class="dot" style="background:var(--mustard)"></span>Sales</span>
+              <span><span class="dot" style="background:var(--rust)"></span>Cost</span>
+              <span><span class="dot" style="background:var(--basil)"></span>Profit</span>
+            </div>
+            <div id="monthlyChartSvgHolder" class="chart-svg-holder"></div>
+            <div class="empty-state" id="monthlyChartEmpty" hidden>
+              <span class="mono">— no history yet —</span>
+              Log a few sales orders to see your monthly P&amp;L trend here.
+            </div>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat-tile accent"><div class="n mono" id="hSales">₹0</div><div class="lbl">Sales</div></div>
+            <div class="stat-tile"><div class="n mono" id="hCost">₹0</div><div class="lbl">Cost</div></div>
+            <div class="stat-tile accent"><div class="n mono" id="hProfit">₹0</div><div class="lbl">Profit</div></div>
+            <div class="stat-tile"><div class="n mono" id="hMargin">0%</div><div class="lbl">Margin</div></div>
+          </div>
+
+          <div class="report-section">
+            <h3>Jump to a screen</h3>
+            <div class="quick-links">
+              <button class="quick-link-card" data-target="menuMaster">
+                <svg class="qc-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="4.5" cy="6" r="1"/><line x1="8" y1="6" x2="20" y2="6"/><circle cx="4.5" cy="12" r="1"/><line x1="8" y1="12" x2="20" y2="12"/><circle cx="4.5" cy="18" r="1"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
+                <span class="qc-title">Menu Master</span><span class="qc-desc">Items, categories &amp; units</span></button>
+              <button class="quick-link-card" data-target="rateMaster">
+                <svg class="qc-icon" width="20" height="20" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="16.3" text-anchor="middle" font-size="11" font-family="'Space Mono',monospace" fill="currentColor">₹</text></svg>
+                <span class="qc-title">Rate Master</span><span class="qc-desc">What you charge</span></button>
+              <button class="quick-link-card" data-target="costMaster">
+                <svg class="qc-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="9" r="5.5"/><circle cx="15" cy="15" r="5.5"/></svg>
+                <span class="qc-title">Cost Master</span><span class="qc-desc">What it costs to make</span></button>
+              <button class="quick-link-card" data-target="salesOrder">
+                <svg class="qc-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v15.5l-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3-1.6 1.3-1.7-1.3z"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="8.5" y1="11" x2="15.5" y2="11"/></svg>
+                <span class="qc-title">Sales Order</span><span class="qc-desc">Log today's sales</span></button>
+              <button class="quick-link-card" data-target="reconciliation">
+                <svg class="qc-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="4.5" y="13" width="3.2" height="6.5" rx="0.5"/><rect x="10.4" y="8.5" width="3.2" height="11" rx="0.5"/><rect x="16.3" y="4.5" width="3.2" height="15" rx="0.5"/></svg>
+                <span class="qc-title">Reconciliation Dashboard</span><span class="qc-desc">Full month-end P&amp;L</span></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MENU MASTER PANEL -->
+        <div id="menuMasterPanel" hidden>
+          <div class="panel-head"><h2 class="mono">01 · Menu Master</h2><p>What's on the menu — name, category, and serving unit. Rates live in Rate Master.</p></div>
+          <div class="toolbar">
+            <div></div>
+            <div class="toolbar-right"><button class="add-btn" id="btnAddMenuMaster">+ Add item</button></div>
+          </div>
+
+          <form id="menuMasterForm" class="item-form" hidden>
+            <h3 id="menuMasterFormTitle" class="mono">New menu item</h3>
+            <div class="field-row">
+              <div class="field" style="flex:2;"><label for="mmName">Item name</label><input id="mmName" required placeholder="e.g. Veg thali"></div>
+              <div class="field">
+                <label for="mmCat">Category</label>
+                <select id="mmCat">
+                  <option>Starters</option><option>Mains</option><option>Rice &amp; Breads</option>
+                  <option>Sides</option><option>Beverages</option><option>Desserts</option><option>Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="mmUnit">Unit</label>
+                <select id="mmUnit">
+                  <option>plate</option><option>piece</option><option>bowl</option><option>cup</option>
+                  <option>kg</option><option>litre</option><option>packet</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit" id="mmSubmitBtn">Add item</button>
+              <button class="ghost-btn" type="button" id="mmCancelBtn">Cancel</button>
+            </div>
+          </form>
+
+          <div class="ledger" id="menuMasterLedger">
+            <div class="menu-head ledger-head"><span>Item</span><span>Category</span><span>Unit</span><span>Rate ₹ (ref)</span><span></span></div>
+            <div id="menuMasterBody"></div>
+          </div>
+          <div class="empty-state" id="menuMasterEmpty" hidden>
+            <span class="mono">— menu is empty —</span>
+            Add your first menu item. You'll set its rate next, in Rate Master.
+          </div>
+        </div>
+
+        <!-- RATE MASTER PANEL -->
+        <div id="rateMasterPanel" hidden>
+          <div class="panel-head"><h2 class="mono">02 · Rate Master</h2><p>The price list. Updating a rate here only affects sales orders logged after the change — past orders keep the rate they were charged at.</p></div>
+
+          <form id="rateForm" class="item-form" hidden>
+            <h3 class="mono">Update rate</h3>
+            <div class="field-row">
+              <div class="field" style="flex:2;"><label>Item</label><div class="amount-preview" id="rfItemName"></div></div>
+              <div class="field"><label for="rfRate">New rate ₹</label><input id="rfRate" type="number" step="any" min="0" required></div>
+            </div>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit" id="rfSubmitBtn">Save rate</button>
+              <button class="ghost-btn" type="button" id="rfCancelBtn">Cancel</button>
+            </div>
+          </form>
+
+          <div class="ledger" id="rateMasterLedger">
+            <div class="menu-head ledger-head"><span>Item</span><span>Category</span><span>Unit</span><span>Rate ₹</span><span></span></div>
+            <div id="rateMasterBody"></div>
+          </div>
+          <div class="empty-state" id="rateMasterEmpty" hidden>
+            <span class="mono">— no items yet —</span>
+            Add items in Menu Master first, then set their rates here.
+          </div>
+        </div>
+
+        <!-- COST MASTER PANEL -->
+        <div id="costMasterPanel" hidden>
+          <div class="panel-head"><h2 class="mono">03 · Cost Master</h2><p>What each item costs you to make — feeds the profit numbers on the Reconciliation Dashboard. Separate from Rate Master, which is what you charge.</p></div>
+
+          <form id="costForm" class="item-form" hidden>
+            <h3 class="mono">Update cost</h3>
+            <div class="field-row">
+              <div class="field" style="flex:2;"><label>Item</label><div class="amount-preview" id="cfItemName"></div></div>
+              <div class="field"><label for="cfCost">New cost ₹ (per unit)</label><input id="cfCost" type="number" step="any" min="0" required></div>
+            </div>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit" id="cfSubmitBtn">Save cost</button>
+              <button class="ghost-btn" type="button" id="cfCancelBtn">Cancel</button>
+            </div>
+          </form>
+
+          <div class="ledger" id="costMasterLedger">
+            <div class="menu-head ledger-head"><span>Item</span><span>Category</span><span>Unit</span><span>Cost ₹</span><span></span></div>
+            <div id="costMasterBody"></div>
+          </div>
+          <div class="empty-state" id="costMasterEmpty" hidden>
+            <span class="mono">— no items yet —</span>
+            Add items in Menu Master first, then set their cost here.
+          </div>
+        </div>
+
+        <!-- SALES ORDER PANEL -->
+        <div id="salesOrderPanel" hidden>
+          <div class="panel-head"><h2 class="mono">04 · Sales Order</h2><p>Log what was sold each day — pick the item and quantity, the amount is calculated from the rate automatically.</p></div>
+          <div class="toolbar">
+            <div class="month-picker">
+              <label for="monthInput">Month</label>
+              <input type="month" id="monthInput">
+            </div>
+            <div class="toolbar-right">
+              <input class="search-input" id="entrySearch" placeholder="Search item…">
+              <button class="add-btn" id="btnAddEntry">+ New sales order</button>
+            </div>
+          </div>
+
+          <form id="entryForm" class="item-form" hidden>
+            <h3 id="entryFormTitle" class="mono">New sales order</h3>
+            <div class="field-row">
+              <div class="field"><label for="efDate">Date</label><input id="efDate" type="date" required></div>
+              <div class="field" style="flex:2;">
+                <label for="efItem">Menu item</label>
+                <select id="efItem" required></select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="efQty">Quantity</label><input id="efQty" type="number" step="any" min="0" required></div>
+              <div class="field"><label for="efRate">Rate ₹ (per unit)</label><input id="efRate" type="number" step="any" min="0" required></div>
+              <div class="field">
+                <label>Amount</label>
+                <div class="amount-preview">₹ <strong id="efAmount" class="mono">0</strong></div>
+              </div>
+            </div>
+            <div class="field"><label for="efNote">Note (optional)</label><input id="efNote" placeholder="e.g. catering order, discount applied"></div>
+            <div class="form-actions">
+              <button class="primary-btn" type="submit" id="efSubmitBtn">Add order</button>
+              <button class="ghost-btn" type="button" id="efCancelBtn">Cancel</button>
+            </div>
+          </form>
+
+          <div class="ledger" id="entryLedger">
+            <div class="ledger-head">
+              <span>Date</span><span>Item</span><span>Qty</span><span>Rate ₹</span><span>Amount ₹</span><span>Logged by</span><span></span>
+            </div>
+            <div id="entryBody"></div>
+          </div>
+          <div class="empty-state" id="entryEmpty" hidden>
+            <span class="mono">— no sales orders —</span>
+            <span id="entryEmptyMsg">No sales orders logged for this month yet.</span>
+          </div>
+        </div>
+
+        <!-- RECONCILIATION DASHBOARD PANEL -->
+        <div id="reconciliationPanel" hidden>
+          <div class="panel-head"><h2 class="mono">05 · Reconciliation Dashboard</h2><p>Month-end settle-up and P&amp;L — sales, cost, and profit against each menu item, plus who logged what.</p></div>
+          <div class="toolbar">
+            <div class="month-picker"><label for="monthInputReport">Month</label><input type="month" id="monthInputReport"></div>
+            <div class="toolbar-right"><button class="ghost-btn no-print" id="btnPrint">Print report</button></div>
+          </div>
+
+          <div class="report-head">
+            <div class="report-title">
+              <h2 id="reportMonthLabel" class="mono"></h2>
+              <p id="reportSubline">Settle-up summary for the shared Bavarchi</p>
+            </div>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat-tile accent"><div class="n mono" id="rSales">₹0</div><div class="lbl">Sales</div></div>
+            <div class="stat-tile"><div class="n mono" id="rCost">₹0</div><div class="lbl">Cost</div></div>
+            <div class="stat-tile accent"><div class="n mono" id="rProfit">₹0</div><div class="lbl">Profit</div></div>
+            <div class="stat-tile"><div class="n mono" id="rMargin">0%</div><div class="lbl">Margin</div></div>
+          </div>
+
+          <div class="report-section">
+            <h3>By menu item — sales, cost &amp; profit</h3>
+            <div style="overflow-x:auto;">
+            <table class="breakdown-table" id="itemBreakdownTable">
+              <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Sales ₹</th><th class="num">Cost ₹</th><th class="num">Profit ₹</th><th class="num">Margin</th></tr></thead>
+              <tbody id="itemBreakdownBody"></tbody>
+              <tfoot><tr><td>Total</td><td class="num" id="itemBreakdownTotalQty"></td><td class="num" id="itemBreakdownTotalAmt"></td><td class="num" id="itemBreakdownTotalCost"></td><td class="num" id="itemBreakdownTotalProfit"></td><td class="num" id="itemBreakdownTotalMargin"></td></tr></tfoot>
+            </table>
+            </div>
+            <p id="costEstimateNote" style="font-size:.72rem;color:var(--ink-soft);margin:8px 2px 0;" hidden>Orders logged before Cost Master was set up use today's cost as an estimate, not the cost at the time of sale.</p>
+          </div>
+
+          <div class="report-section">
+            <h3>By who logged it</h3>
+            <table class="breakdown-table" id="partnerBreakdownTable">
+              <thead><tr><th>Logged by</th><th class="num">Entries</th><th class="num">Amount ₹</th><th style="width:120px;">Share</th></tr></thead>
+              <tbody id="partnerBreakdownBody"></tbody>
+            </table>
+          </div>
+
+          <div class="empty-state" id="reportEmpty" hidden>
+            <span class="mono">— nothing to report —</span>
+            No sales orders logged for this month yet.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  document.getElementById("mastheadRight").textContent =
+    new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
+
+  var toastEl = document.getElementById("toast");
+  var toastTimer;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 2200);
+  }
+
+  async function sha256Hex(str) {
+    var enc = new TextEncoder().encode(str);
+    var buf = await crypto.subtle.digest("SHA-256", enc);
+    return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+  }
+  function hashPassword(username, password) { return sha256Hex(username.toLowerCase() + ":" + password); }
+  function hashAnswer(username, answer) { return sha256Hex(username.toLowerCase() + ":sq:" + answer.trim().toLowerCase()); }
+
+  function currentMonth() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  }
+  function monthLabel(ym) {
+    var parts = ym.split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    return d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  }
+  function money(n) { return "₹" + Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 }); }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
+  }
+  var CATEGORY_COLORS = { "Starters": "var(--mustard)", "Mains": "var(--basil)", "Rice & Breads": "var(--brown)", "Sides": "var(--teal)", "Beverages": "var(--indigo)", "Desserts": "var(--rose)", "Other": "var(--ink-soft)" };
+  function categoryColor(cat) { return CATEGORY_COLORS[cat] || "var(--ink-soft)"; }
+  function catDot(cat) { return '<span class="cat-dot" style="background:' + categoryColor(cat) + '"></span>'; }
+
+  /* ---------- local in-memory DB shim (used only when the real db capability is unavailable) ---------- */
+  function makeMemoryDb() {
+    var store = {}, listeners = {};
+    function notify(path) {
+      Object.keys(listeners).forEach(function (lp) {
+        if (path === lp || path.indexOf(lp + "/") === 0) listeners[lp].forEach(function (fn) { fn(); });
+      });
+    }
+    function docApi(path) {
+      var id = path.split("/").pop();
+      return {
+        id: id, path: path,
+        get: function () { return Promise.resolve({ id: id, exists: !!store[path], data: function () { return store[path]; } }); },
+        set: function (data) { store[path] = JSON.parse(JSON.stringify(data)); notify(path); return Promise.resolve(); },
+        update: function (data) {
+          if (!store[path]) return Promise.reject({ code: "invalid_argument", message: "no such document" });
+          Object.assign(store[path], JSON.parse(JSON.stringify(data))); notify(path); return Promise.resolve();
+        },
+        delete: function () { delete store[path]; notify(path); return Promise.resolve(); },
+        onSnapshot: function (next) {
+          var fn = function () { next({ id: id, exists: !!store[path], data: function () { return store[path]; } }); };
+          listeners[path] = listeners[path] || []; listeners[path].push(fn); fn();
+          return function () { listeners[path] = (listeners[path] || []).filter(function (f) { return f !== fn; }); };
+        },
+        collection: function (sub) { return collApi(path + "/" + sub); }
+      };
+    }
+    function collApi(path) {
+      var filters = [], order = null, lim = null;
+      function matches() {
+        var depth = path.split("/").length + 1;
+        return Object.keys(store).filter(function (p) { return p.indexOf(path + "/") === 0 && p.split("/").length === depth; });
+      }
+      function snapshot() {
+        var docs = matches().map(function (p) { return { id: p.split("/").pop(), data: store[p] }; });
+        filters.forEach(function (f) {
+          docs = docs.filter(function (d) {
+            var v = d.data[f.field];
+            if (f.op === "==") return v === f.value;
+            if (f.op === "!=") return v !== f.value;
+            if (f.op === "<") return v < f.value;
+            if (f.op === "<=") return v <= f.value;
+            if (f.op === ">") return v > f.value;
+            if (f.op === ">=") return v >= f.value;
+            return true;
+          });
+        });
+        if (order) docs.sort(function (a, b) {
+          var av = a.data[order.field], bv = b.data[order.field];
+          if (av === bv) return 0;
+          var r = av < bv ? -1 : 1;
+          return order.dir === "desc" ? -r : r;
+        });
+        if (lim) docs = docs.slice(0, lim);
+        return { docs: docs.map(function (d) { return { id: d.id, exists: true, data: function () { return d.data; } }; }), size: docs.length, empty: docs.length === 0 };
+      }
+      var api = {
+        doc: function (id) { return docApi(path + "/" + (id || ("m" + Math.random().toString(36).slice(2)))); },
+        add: function (data) { var ref = api.doc(); return ref.set(data).then(function () { return ref; }); },
+        where: function (field, op, value) { filters.push({ field: field, op: op, value: value }); return api; },
+        orderBy: function (field, dir) { order = { field: field, dir: dir || "asc" }; return api; },
+        limit: function (n) { lim = n; return api; },
+        get: function () { return Promise.resolve(snapshot()); },
+        onSnapshot: function (next) {
+          var fn = function () { next(snapshot()); };
+          listeners[path] = listeners[path] || []; listeners[path].push(fn); fn();
+          return function () { listeners[path] = (listeners[path] || []).filter(function (f) { return f !== fn; }); };
+        }
+      };
+      return api;
+    }
+    return { doc: docApi, collection: collApi };
+  }
+
+  var db = null;
+
+  async function initDb() {
+    var real = null;
+    try { if (window.claude && typeof window.claude.use === "function") real = await window.claude.use("db"); } catch (e) { real = null; }
+    if (real) { db = real; boot(); return; }
+
+    // Self-hosted path: use Firebase if firebaseConfig (above) has been filled in.
+    var fc = window.firebaseConfig;
+    if (typeof firebase !== "undefined" && fc && fc.apiKey && fc.apiKey.indexOf("REPLACE_ME") !== 0) {
+      try {
+        firebase.initializeApp(fc);
+        db = firebase.firestore();
+        boot();
+        return;
+      } catch (e) { /* config present but invalid — fall through to local demo mode */ }
+    }
+
+    db = makeMemoryDb();
+    document.getElementById("dbNotice").hidden = false;
+    await seedDemo(); // safe to pre-seed locally since there's no shared "main" data to protect
+    boot();
+  }
+
+  async function seedDemo() {
+    var existing = await db.doc("users/demo").get();
+    if (existing.exists) return;
+    var hash = await hashPassword("demo", "demo1234");
+    var qHash = await hashAnswer("demo", "biryani");
+    await db.doc("users/demo").set({ displayName: "Demo Cook", passwordHash: hash, securityQuestion: "What's the demo chef's signature dish?", securityAnswerHash: qHash, createdAt: Date.now() });
+    var menu = [
+      { name: "Veg thali", category: "Mains", rate: 120, cost: 70, unit: "plate" },
+      { name: "Paneer butter masala", category: "Mains", rate: 160, cost: 95, unit: "bowl" },
+      { name: "Chicken biryani", category: "Mains", rate: 190, cost: 110, unit: "plate" },
+      { name: "Tandoori roti", category: "Rice & Breads", rate: 15, cost: 6, unit: "piece" },
+      { name: "Jeera rice", category: "Rice & Breads", rate: 70, cost: 35, unit: "bowl" },
+      { name: "Masala chai", category: "Beverages", rate: 20, cost: 8, unit: "cup" },
+      { name: "Gulab jamun", category: "Desserts", rate: 40, cost: 18, unit: "piece" }
+    ];
+    var menuIds = [];
+    for (var i = 0; i < menu.length; i++) {
+      var ref = await db.collection("workspaces/demo/menu").add(Object.assign({ createdAt: Date.now() + i }, menu[i]));
+      menuIds.push({ id: ref.id, item: menu[i] });
+    }
+    var today = new Date();
+    function iso(offsetDays) { var d = new Date(today); d.setDate(d.getDate() + offsetDays); return d.toISOString().slice(0, 10); }
+    var sample = [
+      [0, 0, 6, "demo", ""], [0, 2, 4, "demo", ""], [0, 5, 10, "partner_demo", ""],
+      [-1, 1, 5, "demo", ""], [-1, 3, 12, "partner_demo", "extra for a table order"],
+      [-2, 0, 8, "demo", ""], [-2, 6, 3, "partner_demo", ""],
+      [-5, 2, 6, "demo", ""], [-5, 4, 2, "partner_demo", ""],
+      [-9, 0, 5, "partner_demo", ""], [-9, 5, 15, "demo", ""]
+    ];
+    for (var j = 0; j < sample.length; j++) {
+      var row = sample[j], mi = menuIds[row[1]];
+      await db.collection("workspaces/demo/entries").add({
+        date: iso(row[0]), menuItemId: mi.id, itemName: mi.item.name, unit: mi.item.unit,
+        rate: mi.item.rate, cost: mi.item.cost, quantity: row[2], amount: mi.item.rate * row[2],
+        note: row[4], loggedBy: row[3], loggedByName: row[3] === "demo" ? "Demo Cook" : "Demo Partner",
+        createdAt: Date.now() - j
+      });
+    }
+  }
+
+  var SESSION_KEY = "khataSession";
+  function saveSession(s) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) {} }
+  function loadSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) { return null; } }
+  function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+
+  var session = null; // { username, displayName, workspace }
+  var menuUnsub = null, entriesUnsub = null;
+  var menuItems = [], allEntries = [];
+  var editingEntryId = null, editingMenuId = null;
+
+  function wsPath(name) { return "workspaces/" + session.workspace + "/" + name; }
+
+  /* ---------- auth screen ---------- */
+  var tabLogin = document.getElementById("tabLogin"), tabSignup = document.getElementById("tabSignup");
+  var formLogin = document.getElementById("formLogin"), formSignup = document.getElementById("formSignup");
+  var authMsg = document.getElementById("authMsg");
+  function showAuthMsg(t, k) { authMsg.textContent = t; authMsg.className = "auth-msg show " + k; }
+  function clearAuthMsg() { authMsg.className = "auth-msg"; }
+  function switchTab(which) {
+    clearAuthMsg();
+    var login = which === "login";
+    tabLogin.setAttribute("aria-selected", login); tabSignup.setAttribute("aria-selected", !login);
+    formLogin.hidden = !login; formSignup.hidden = login;
+  }
+  tabLogin.addEventListener("click", function () { switchTab("login"); });
+  tabSignup.addEventListener("click", function () { switchTab("signup"); });
+
+  formLogin.addEventListener("submit", async function (e) {
+    e.preventDefault(); clearAuthMsg();
+    var username = document.getElementById("loginUser").value.trim().toLowerCase();
+    var password = document.getElementById("loginPass").value;
+    if (!username || !password) return;
+    var btn = formLogin.querySelector("button"); btn.disabled = true;
+    try {
+      var snap = await db.doc("users/" + username).get();
+      if (!snap.exists) { showAuthMsg("No account with that username yet — try signing up.", "error"); return; }
+      var hash = await hashPassword(username, password);
+      if (hash !== snap.data().passwordHash) { showAuthMsg("Incorrect password.", "error"); return; }
+      enterApp({ username: username, displayName: snap.data().displayName || username, workspace: "main" });
+    } catch (err) { showAuthMsg("Couldn't reach Bavarchi just now. Try again.", "error"); }
+    finally { btn.disabled = false; }
+  });
+
+  formSignup.addEventListener("submit", async function (e) {
+    e.preventDefault(); clearAuthMsg();
+    var displayName = document.getElementById("suName").value.trim();
+    var email = document.getElementById("suEmail").value.trim();
+    var username = document.getElementById("suUser").value.trim().toLowerCase();
+    var pass = document.getElementById("suPass").value, pass2 = document.getElementById("suPass2").value;
+    var question = document.getElementById("suQ").value.trim();
+    var answer = document.getElementById("suA").value.trim();
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) { showAuthMsg("Username: 3-20 characters, lowercase letters/numbers/underscore only.", "error"); return; }
+    if (pass !== pass2) { showAuthMsg("Passwords don't match.", "error"); return; }
+    if (pass.length < 4) { showAuthMsg("Password needs at least 4 characters.", "error"); return; }
+    if (!question || !answer) { showAuthMsg("Add a recovery question and answer — that's how you'll reset your password later.", "error"); return; }
+    var btn = formSignup.querySelector("button"); btn.disabled = true;
+    try {
+      var existing = await db.doc("users/" + username).get();
+      if (existing.exists) { showAuthMsg("That username is taken — try logging in instead.", "error"); return; }
+      var hash = await hashPassword(username, pass);
+      var answerHash = await hashAnswer(username, answer);
+      await db.doc("users/" + username).set({ displayName: displayName, email: email, passwordHash: hash, securityQuestion: question, securityAnswerHash: answerHash, createdAt: Date.now() });
+      showSignupConfirm({ username: username, displayName: displayName, workspace: "main" }, email, pass);
+    } catch (err) { showAuthMsg("Couldn't create that account just now. Try again.", "error"); }
+    finally { btn.disabled = false; }
+  });
+
+  function showSignupConfirm(session, email, plainPassword) {
+    var box = document.getElementById("signupDetailsBox");
+    box.textContent =
+      "Display name : " + session.displayName + "\n" +
+      "Email         : " + email + "\n" +
+      "Username      : " + session.username + "\n" +
+      "Password      : " + plainPassword;
+    document.getElementById("authForms").hidden = true;
+    document.getElementById("signupConfirm").hidden = false;
+    document.getElementById("btnCopyDetails").onclick = function () {
+      var text = box.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast("Copied — paste it into an email to yourself"); }, function () { toast("Couldn't copy — select and copy manually"); });
+      } else { toast("Couldn't copy — select and copy manually"); }
+    };
+    document.getElementById("btnContinueSignup").onclick = function () {
+      document.getElementById("signupConfirm").hidden = true;
+      document.getElementById("authForms").hidden = false;
+      formSignup.reset();
+      enterApp(session);
+    };
+  }
+
+  var authForms = document.getElementById("authForms"), forgotWrap = document.getElementById("forgotWrap");
+  var forgotStep1 = document.getElementById("forgotStep1"), forgotStep2 = document.getElementById("forgotStep2");
+  var forgotMsg = document.getElementById("forgotMsg");
+  var pendingResetUsername = null;
+  function showForgotMsg(t, k) { forgotMsg.textContent = t; forgotMsg.className = "auth-msg show " + k; }
+  function clearForgotMsg() { forgotMsg.className = "auth-msg"; }
+
+  function openForgot() {
+    clearAuthMsg(); clearForgotMsg();
+    authForms.hidden = true; forgotWrap.hidden = false;
+    forgotStep1.hidden = false; forgotStep2.hidden = true;
+    forgotStep1.reset(); forgotStep2.reset();
+    var u = document.getElementById("loginUser").value.trim();
+    if (u) document.getElementById("fpUser").value = u;
+  }
+  function closeForgot() {
+    forgotWrap.hidden = true; authForms.hidden = false;
+    pendingResetUsername = null;
+    switchTab("login");
+  }
+  document.getElementById("linkForgot").addEventListener("click", openForgot);
+  document.getElementById("btnBackToLogin").addEventListener("click", closeForgot);
+
+  forgotStep1.addEventListener("submit", async function (e) {
+    e.preventDefault(); clearForgotMsg();
+    var username = document.getElementById("fpUser").value.trim().toLowerCase();
+    if (!username) return;
+    var btn = forgotStep1.querySelector("button"); btn.disabled = true;
+    try {
+      var snap = await db.doc("users/" + username).get();
+      if (!snap.exists) { showForgotMsg("No account with that username.", "error"); return; }
+      if (!snap.data().securityQuestion) { showForgotMsg("This account has no recovery question set up, so it can't be self-reset. Sign up under a new username instead.", "error"); return; }
+      pendingResetUsername = username;
+      document.getElementById("fpQuestionText").textContent = snap.data().securityQuestion;
+      forgotStep1.hidden = true; forgotStep2.hidden = false;
+      document.getElementById("fpAnswer").focus();
+    } catch (err) { showForgotMsg("Couldn't look that up just now. Try again.", "error"); }
+    finally { btn.disabled = false; }
+  });
+
+  forgotStep2.addEventListener("submit", async function (e) {
+    e.preventDefault(); clearForgotMsg();
+    var answer = document.getElementById("fpAnswer").value;
+    var newPass = document.getElementById("fpNewPass").value, newPass2 = document.getElementById("fpNewPass2").value;
+    if (newPass !== newPass2) { showForgotMsg("Passwords don't match.", "error"); return; }
+    if (newPass.length < 4) { showForgotMsg("Password needs at least 4 characters.", "error"); return; }
+    var btn = forgotStep2.querySelector("button"); btn.disabled = true;
+    try {
+      var snap = await db.doc("users/" + pendingResetUsername).get();
+      if (!snap.exists) { showForgotMsg("That account no longer exists.", "error"); return; }
+      var answerHash = await hashAnswer(pendingResetUsername, answer);
+      if (answerHash !== snap.data().securityAnswerHash) { showForgotMsg("That answer doesn't match what's on file.", "error"); return; }
+      var newHash = await hashPassword(pendingResetUsername, newPass);
+      await db.doc("users/" + pendingResetUsername).update({ passwordHash: newHash });
+      toast("Password reset — you can log in now");
+      document.getElementById("loginUser").value = pendingResetUsername;
+      document.getElementById("loginPass").value = "";
+      closeForgot();
+    } catch (err) { showForgotMsg("Couldn't reset the password just now. Try again.", "error"); }
+    finally { btn.disabled = false; }
+  });
+
+  document.getElementById("btnDemo").addEventListener("click", async function () {
+    clearAuthMsg();
+    try {
+      await seedDemo();
+      var snap = await db.doc("users/demo").get();
+      enterApp({ username: "demo", displayName: (snap.exists && snap.data().displayName) || "Demo Cook", workspace: "demo" });
+    } catch (err) { showAuthMsg("Couldn't load the demo Bavarchi just now. Try again.", "error"); }
+  });
+
+  document.getElementById("btnLogout").addEventListener("click", function () {
+    if (menuUnsub) { menuUnsub(); menuUnsub = null; }
+    if (entriesUnsub) { entriesUnsub(); entriesUnsub = null; }
+    session = null; clearSession();
+    document.getElementById("screenApp").hidden = true;
+    document.getElementById("screenAuth").hidden = false;
+    formLogin.reset(); formSignup.reset(); switchTab("login");
+  });
+
+  function enterApp(s) {
+    session = s;
+    saveSession(s);
+    document.getElementById("screenAuth").hidden = true;
+    document.getElementById("screenApp").hidden = false;
+    document.getElementById("whoName").textContent = s.displayName;
+    document.getElementById("wsLabel").textContent = s.workspace === "demo" ? "Demo Bavarchi" : "";
+    document.getElementById("monthInput").value = currentMonth();
+    document.getElementById("monthInputReport").value = currentMonth();
+    switchAppTab("home");
+    subscribeMenu();
+    subscribeEntries();
+  }
+
+  /* ---------- side nav ---------- */
+  var panels = {
+    home: document.getElementById("homePanel"),
+    menuMaster: document.getElementById("menuMasterPanel"),
+    rateMaster: document.getElementById("rateMasterPanel"),
+    costMaster: document.getElementById("costMasterPanel"),
+    salesOrder: document.getElementById("salesOrderPanel"),
+    reconciliation: document.getElementById("reconciliationPanel")
+  };
+  var navItems = {
+    home: document.getElementById("navHome"),
+    menuMaster: document.getElementById("navMenuMaster"),
+    rateMaster: document.getElementById("navRateMaster"),
+    costMaster: document.getElementById("navCostMaster"),
+    salesOrder: document.getElementById("navSalesOrder"),
+    reconciliation: document.getElementById("navReconciliation")
+  };
+  function switchAppTab(which) {
+    Object.keys(panels).forEach(function (k) { panels[k].hidden = k !== which; navItems[k].setAttribute("aria-selected", k === which); });
+    if (which === "reconciliation") renderReport();
+    if (which === "home") renderHome();
+  }
+  Object.keys(navItems).forEach(function (k) { navItems[k].addEventListener("click", function () { switchAppTab(k); closeNav(); }); });
+  document.getElementById("btnHome").addEventListener("click", function () { switchAppTab("home"); closeNav(); });
+  document.querySelectorAll(".quick-link-card").forEach(function (btn) {
+    btn.addEventListener("click", function () { switchAppTab(btn.getAttribute("data-target")); });
+  });
+
+  /* ---------- right-side menu drawer ---------- */
+  var sideNavEl = document.getElementById("sideNav");
+  var navBackdropEl = document.getElementById("navBackdrop");
+  var btnMenuEl = document.getElementById("btnMenu");
+  function openNav() { sideNavEl.classList.add("open"); navBackdropEl.classList.add("show"); btnMenuEl.setAttribute("aria-expanded", "true"); }
+  function closeNav() { sideNavEl.classList.remove("open"); navBackdropEl.classList.remove("show"); btnMenuEl.setAttribute("aria-expanded", "false"); }
+  btnMenuEl.addEventListener("click", function () { sideNavEl.classList.contains("open") ? closeNav() : openNav(); });
+  navBackdropEl.addEventListener("click", closeNav);
+  document.getElementById("btnNavClose").addEventListener("click", closeNav);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeNav(); });
+
+  /* ---------- menu / rate master (shared "menu" collection: name, category, unit, rate) ---------- */
+  function subscribeMenu() {
+    if (menuUnsub) menuUnsub();
+    menuUnsub = db.collection(wsPath("menu")).orderBy("createdAt", "asc").onSnapshot(function (snap) {
+      menuItems = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      renderMenuMaster();
+      renderRateMaster();
+      renderCostMaster();
+      populateEntryItemSelect();
+    }, function () { toast("Menu updates paused"); });
+  }
+
+  function renderMenuMaster() {
+    var body = document.getElementById("menuMasterBody");
+    body.innerHTML = "";
+    document.getElementById("menuMasterEmpty").hidden = menuItems.length !== 0;
+    document.getElementById("menuMasterLedger").hidden = menuItems.length === 0;
+    menuItems.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "menu-row";
+      row.innerHTML =
+        '<div class="item-name">' + escapeHtml(it.name) + '</div>' +
+        '<div>' + catDot(it.category) + escapeHtml(it.category) + '</div>' +
+        '<div>' + escapeHtml(it.unit) + '</div>' +
+        '<div class="num mono" style="color:var(--ink-soft);">' + money(it.rate) + '</div>' +
+        '<div class="row-actions">' +
+          '<button class="icon-btn" data-edit="' + it.id + '" title="Edit" aria-label="Edit ' + escapeHtml(it.name) + '">✎</button>' +
+          '<button class="icon-btn danger" data-del="' + it.id + '" title="Delete" aria-label="Delete ' + escapeHtml(it.name) + '">✕</button>' +
+        '</div>';
+      body.appendChild(row);
+    });
+    body.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openMenuMasterForm(b.getAttribute("data-edit")); }); });
+    body.querySelectorAll("[data-del]").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        var id = b.getAttribute("data-del");
+        try { await db.collection(wsPath("menu")).doc(id).delete(); toast("Removed from menu"); }
+        catch (e) { toast("Couldn't delete — try again"); }
+      });
+    });
+  }
+
+  var menuMasterForm = document.getElementById("menuMasterForm");
+  function openMenuMasterForm(id) {
+    editingMenuId = id || null;
+    document.getElementById("menuMasterFormTitle").textContent = editingMenuId ? "Edit menu item" : "New menu item";
+    document.getElementById("mmSubmitBtn").textContent = editingMenuId ? "Save changes" : "Add item";
+    if (editingMenuId) {
+      var it = menuItems.find(function (x) { return x.id === editingMenuId; });
+      document.getElementById("mmName").value = it.name;
+      document.getElementById("mmCat").value = it.category;
+      document.getElementById("mmUnit").value = it.unit;
+    } else { menuMasterForm.reset(); }
+    menuMasterForm.hidden = false;
+    document.getElementById("mmName").focus();
+  }
+  function closeMenuMasterForm() { menuMasterForm.hidden = true; editingMenuId = null; menuMasterForm.reset(); }
+  document.getElementById("btnAddMenuMaster").addEventListener("click", function () { openMenuMasterForm(null); });
+  document.getElementById("mmCancelBtn").addEventListener("click", closeMenuMasterForm);
+  menuMasterForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var data = {
+      name: document.getElementById("mmName").value.trim(),
+      category: document.getElementById("mmCat").value,
+      unit: document.getElementById("mmUnit").value
+    };
+    if (!data.name) return;
+    var btn = document.getElementById("mmSubmitBtn"); btn.disabled = true;
+    try {
+      if (editingMenuId) { await db.collection(wsPath("menu")).doc(editingMenuId).update(data); toast("Saved changes"); }
+      else { data.rate = 0; data.cost = 0; data.createdAt = Date.now(); await db.collection(wsPath("menu")).add(data); toast("Added to menu — set its rate and cost next"); }
+      closeMenuMasterForm();
+    } catch (err) { toast("Couldn't save — try again"); }
+    finally { btn.disabled = false; }
+  });
+
+  function renderRateMaster() {
+    var body = document.getElementById("rateMasterBody");
+    body.innerHTML = "";
+    document.getElementById("rateMasterEmpty").hidden = menuItems.length !== 0;
+    document.getElementById("rateMasterLedger").hidden = menuItems.length === 0;
+    menuItems.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "menu-row";
+      row.innerHTML =
+        '<div class="item-name">' + escapeHtml(it.name) + '</div>' +
+        '<div>' + catDot(it.category) + escapeHtml(it.category) + '</div>' +
+        '<div>' + escapeHtml(it.unit) + '</div>' +
+        '<div class="num mono" style="font-weight:700;">' + money(it.rate) + '</div>' +
+        '<div class="row-actions">' +
+          '<button class="icon-btn" data-rate-edit="' + it.id + '" title="Update rate" aria-label="Update rate for ' + escapeHtml(it.name) + '">✎</button>' +
+        '</div>';
+      body.appendChild(row);
+    });
+    body.querySelectorAll("[data-rate-edit]").forEach(function (b) { b.addEventListener("click", function () { openRateForm(b.getAttribute("data-rate-edit")); }); });
+  }
+
+  var rateForm = document.getElementById("rateForm");
+  var editingRateId = null;
+  function openRateForm(id) {
+    editingRateId = id;
+    var it = menuItems.find(function (x) { return x.id === id; });
+    document.getElementById("rfItemName").textContent = it.name + " (" + it.unit + ")";
+    document.getElementById("rfRate").value = it.rate;
+    rateForm.hidden = false;
+    document.getElementById("rfRate").focus();
+  }
+  function closeRateForm() { rateForm.hidden = true; editingRateId = null; rateForm.reset(); }
+  document.getElementById("rfCancelBtn").addEventListener("click", closeRateForm);
+  rateForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var newRate = Number(document.getElementById("rfRate").value);
+    var btn = document.getElementById("rfSubmitBtn"); btn.disabled = true;
+    try {
+      await db.collection(wsPath("menu")).doc(editingRateId).update({ rate: newRate });
+      toast("Rate updated");
+      closeRateForm();
+    } catch (err) { toast("Couldn't save — try again"); }
+    finally { btn.disabled = false; }
+  });
+
+  function renderCostMaster() {
+    var body = document.getElementById("costMasterBody");
+    body.innerHTML = "";
+    document.getElementById("costMasterEmpty").hidden = menuItems.length !== 0;
+    document.getElementById("costMasterLedger").hidden = menuItems.length === 0;
+    menuItems.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "menu-row";
+      row.innerHTML =
+        '<div class="item-name">' + escapeHtml(it.name) + '</div>' +
+        '<div>' + catDot(it.category) + escapeHtml(it.category) + '</div>' +
+        '<div>' + escapeHtml(it.unit) + '</div>' +
+        '<div class="num mono" style="font-weight:700;">' + money(it.cost || 0) + '</div>' +
+        '<div class="row-actions">' +
+          '<button class="icon-btn" data-cost-edit="' + it.id + '" title="Update cost" aria-label="Update cost for ' + escapeHtml(it.name) + '">✎</button>' +
+        '</div>';
+      body.appendChild(row);
+    });
+    body.querySelectorAll("[data-cost-edit]").forEach(function (b) { b.addEventListener("click", function () { openCostForm(b.getAttribute("data-cost-edit")); }); });
+  }
+
+  var costForm = document.getElementById("costForm");
+  var editingCostId = null;
+  function openCostForm(id) {
+    editingCostId = id;
+    var it = menuItems.find(function (x) { return x.id === id; });
+    document.getElementById("cfItemName").textContent = it.name + " (" + it.unit + ")";
+    document.getElementById("cfCost").value = it.cost || 0;
+    costForm.hidden = false;
+    document.getElementById("cfCost").focus();
+  }
+  function closeCostForm() { costForm.hidden = true; editingCostId = null; costForm.reset(); }
+  document.getElementById("cfCancelBtn").addEventListener("click", closeCostForm);
+  costForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var newCost = Number(document.getElementById("cfCost").value);
+    var btn = document.getElementById("cfSubmitBtn"); btn.disabled = true;
+    try {
+      await db.collection(wsPath("menu")).doc(editingCostId).update({ cost: newCost });
+      toast("Cost updated");
+      closeCostForm();
+    } catch (err) { toast("Couldn't save — try again"); }
+    finally { btn.disabled = false; }
+  });
+
+  /* ---------- entries ---------- */
+  document.getElementById("monthInput").addEventListener("input", renderEntries);
+  document.getElementById("entrySearch").addEventListener("input", renderEntries);
+  document.getElementById("monthInputReport").addEventListener("input", renderReport);
+
+  function subscribeEntries() {
+    if (entriesUnsub) entriesUnsub();
+    entriesUnsub = db.collection(wsPath("entries")).orderBy("date", "desc").onSnapshot(function (snap) {
+      allEntries = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      renderEntries();
+      renderReport();
+      renderHome();
+    }, function () { toast("Entry updates paused"); });
+  }
+
+  function entriesForMonth(ym) { return allEntries.filter(function (e) { return e.date && e.date.slice(0, 7) === ym; }); }
+  function itemCategory(entry) {
+    var m = menuItems.find(function (x) { return x.id === entry.menuItemId; }) || menuItems.find(function (x) { return x.name === entry.itemName; });
+    return m ? m.category : null;
+  }
+
+  function populateEntryItemSelect() {
+    var sel = document.getElementById("efItem");
+    var prev = sel.value;
+    sel.innerHTML = menuItems.length
+      ? menuItems.map(function (it) { return '<option value="' + it.id + '">' + escapeHtml(it.name) + ' — ' + money(it.rate) + '/' + escapeHtml(it.unit) + '</option>'; }).join("")
+      : '<option value="">Add a menu item first</option>';
+    if (prev) sel.value = prev;
+    syncRateFromSelect();
+  }
+  function syncRateFromSelect() {
+    var sel = document.getElementById("efItem");
+    var it = menuItems.find(function (m) { return m.id === sel.value; });
+    if (it && !editingEntryId) document.getElementById("efRate").value = it.rate;
+    updateAmountPreview();
+  }
+  document.getElementById("efItem").addEventListener("change", syncRateFromSelect);
+  document.getElementById("efQty").addEventListener("input", updateAmountPreview);
+  document.getElementById("efRate").addEventListener("input", updateAmountPreview);
+  function updateAmountPreview() {
+    var q = Number(document.getElementById("efQty").value) || 0;
+    var r = Number(document.getElementById("efRate").value) || 0;
+    document.getElementById("efAmount").textContent = (q * r).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  }
+
+  var entryForm = document.getElementById("entryForm");
+  function openEntryForm(id) {
+    editingEntryId = id || null;
+    document.getElementById("entryFormTitle").textContent = editingEntryId ? "Edit entry" : "New entry";
+    document.getElementById("efSubmitBtn").textContent = editingEntryId ? "Save changes" : "Add entry";
+    populateEntryItemSelect();
+    if (editingEntryId) {
+      var e = allEntries.find(function (x) { return x.id === editingEntryId; });
+      document.getElementById("efDate").value = e.date;
+      document.getElementById("efItem").value = e.menuItemId;
+      document.getElementById("efQty").value = e.quantity;
+      document.getElementById("efRate").value = e.rate;
+    } else {
+      entryForm.reset();
+      document.getElementById("efDate").value = new Date().toISOString().slice(0, 10);
+      populateEntryItemSelect();
+    }
+    updateAmountPreview();
+    entryForm.hidden = false;
+  }
+  function closeEntryForm() { entryForm.hidden = true; editingEntryId = null; entryForm.reset(); }
+  document.getElementById("btnAddEntry").addEventListener("click", function () {
+    if (!menuItems.length) { toast("Add a menu item first"); switchAppTab("menuMaster"); return; }
+    openEntryForm(null);
+  });
+  document.getElementById("efCancelBtn").addEventListener("click", closeEntryForm);
+
+  entryForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var itemId = document.getElementById("efItem").value;
+    var item = menuItems.find(function (m) { return m.id === itemId; });
+    if (!item) { toast("Pick a menu item"); return; }
+    var qty = Number(document.getElementById("efQty").value);
+    var rate = Number(document.getElementById("efRate").value);
+    var data = { date: document.getElementById("efDate").value, menuItemId: itemId, itemName: item.name, unit: item.unit, quantity: qty, rate: rate, amount: qty * rate, note: document.getElementById("efNote").value.trim() };
+    var btn = document.getElementById("efSubmitBtn"); btn.disabled = true;
+    try {
+      if (editingEntryId) { await db.collection(wsPath("entries")).doc(editingEntryId).update(data); toast("Saved changes"); }
+      else {
+        data.cost = item.cost || 0;
+        data.loggedBy = session.username; data.loggedByName = session.displayName; data.createdAt = Date.now();
+        await db.collection(wsPath("entries")).add(data); toast("Entry logged");
+      }
+      closeEntryForm();
+    } catch (err) { toast("Couldn't save — try again"); }
+    finally { btn.disabled = false; }
+  });
+
+  function renderEntries() {
+    var ym = document.getElementById("monthInput").value || currentMonth();
+    var q = document.getElementById("entrySearch").value.trim().toLowerCase();
+    var list = entriesForMonth(ym).filter(function (e) { return !q || e.itemName.toLowerCase().indexOf(q) !== -1; });
+    var body = document.getElementById("entryBody");
+    body.innerHTML = "";
+    document.getElementById("entryEmpty").hidden = list.length !== 0;
+    document.getElementById("entryLedger").hidden = list.length === 0;
+    document.getElementById("entryEmptyMsg").textContent = "No entries logged for " + monthLabel(ym) + " yet.";
+    list.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "entry-row";
+      row.innerHTML =
+        '<div class="cell-date mono">' + new Date(it.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + '</div>' +
+        '<div class="cell-name">' + catDot(itemCategory(it)) + '<span class="item-name">' + escapeHtml(it.itemName) + '</span>' + (it.note ? '<span class="item-cat">' + escapeHtml(it.note) + '</span>' : '') + '</div>' +
+        '<div class="cell-qty num">' + it.quantity + ' ' + escapeHtml(it.unit) + '</div>' +
+        '<div class="cell-rate num">' + money(it.rate) + '</div>' +
+        '<div class="cell-amount amount-cell num">' + money(it.amount) + '</div>' +
+        '<div class="cell-by"><span class="by-pill">' + escapeHtml(it.loggedByName || it.loggedBy || "—") + '</span></div>' +
+        '<div class="row-actions">' +
+          '<button class="icon-btn" data-edit="' + it.id + '" title="Edit" aria-label="Edit entry">✎</button>' +
+          '<button class="icon-btn danger" data-del="' + it.id + '" title="Delete" aria-label="Delete entry">✕</button>' +
+        '</div>';
+      body.appendChild(row);
+    });
+    body.querySelectorAll("[data-edit]").forEach(function (b) { b.addEventListener("click", function () { openEntryForm(b.getAttribute("data-edit")); }); });
+    body.querySelectorAll("[data-del]").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        var id = b.getAttribute("data-del");
+        try { await db.collection(wsPath("entries")).doc(id).delete(); toast("Entry removed"); }
+        catch (e) { toast("Couldn't delete — try again"); }
+      });
+    });
+  }
+
+  /* ---------- report ---------- */
+  document.getElementById("btnPrint").addEventListener("click", function () { window.print(); });
+
+  function marginPct(profit, sales) { return sales ? Math.round((profit / sales) * 100) : 0; }
+
+  function monthShort(ym) {
+    var parts = ym.split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    return d.toLocaleDateString("en-IN", { month: "short" }).toUpperCase() + " " + parts[0].slice(2);
+  }
+
+  function computeMonthlySeries(anchorYm, count) {
+    var parts = anchorYm.split("-");
+    var y = Number(parts[0]), m = Number(parts[1]);
+    var out = [];
+    for (var i = count - 1; i >= 0; i--) {
+      var d = new Date(y, m - 1 - i, 1);
+      var ym = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+      var list = entriesForMonth(ym);
+      var sales = 0, cost = 0;
+      list.forEach(function (e) {
+        var unitCost;
+        if (e.cost != null) { unitCost = Number(e.cost); }
+        else {
+          var mm = menuItems.find(function (x) { return x.id === e.menuItemId; });
+          unitCost = mm ? Number(mm.cost || 0) : 0;
+        }
+        sales += Number(e.amount || 0);
+        cost += unitCost * Number(e.quantity || 0);
+      });
+      out.push({ ym: ym, sales: sales, cost: cost, profit: sales - cost });
+    }
+    return out;
+  }
+
+  function renderMonthlyChart() {
+    var anchor = currentMonth();
+    var series = computeMonthlySeries(anchor, 6);
+    var hasData = series.some(function (s) { return s.sales || s.cost; });
+    document.getElementById("monthlyChartEmpty").hidden = hasData;
+    var holder = document.getElementById("monthlyChartSvgHolder");
+    holder.hidden = !hasData;
+    if (!hasData) { holder.innerHTML = ""; return; }
+
+    var W = 640, H = 200, padL = 40, padR = 10, padT = 10, padB = 26;
+    var chartW = W - padL - padR, chartH = H - padT - padB;
+    var maxVal = 0, minVal = 0;
+    series.forEach(function (s) {
+      maxVal = Math.max(maxVal, s.sales, s.cost, s.profit);
+      minVal = Math.min(minVal, s.profit);
+    });
+    if (maxVal === 0) maxVal = 1;
+    var range = (maxVal - minVal) || 1;
+    var scale = chartH / range;
+    function yFor(v) { return padT + (maxVal - v) * scale; }
+    var zeroY = yFor(0);
+    var groupW = chartW / series.length;
+    var barW = Math.min(14, groupW * 0.22);
+    var gap = barW * 0.25;
+
+    var bars = "", labels = "";
+    series.forEach(function (s) {
+      var i = series.indexOf(s);
+      var gx = padL + groupW * i + groupW / 2;
+      var isSelected = s.ym === anchor;
+      if (isSelected) {
+        bars += '<rect x="' + (padL + groupW * i + 2).toFixed(1) + '" y="' + padT + '" width="' + (groupW - 4).toFixed(1) + '" height="' + chartH + '" fill="var(--line)" opacity="0.3" rx="4"/>';
+      }
+      var vals = [s.sales, "var(--mustard)", s.cost, "var(--rust)", s.profit, s.profit >= 0 ? "var(--basil)" : "var(--rust)"];
+      var startX = gx - (barW * 3 + gap * 2) / 2;
+      for (var j = 0; j < 3; j++) {
+        var val = vals[j * 2], color = vals[j * 2 + 1];
+        var y1 = yFor(val), y2 = zeroY;
+        var rectY = Math.min(y1, y2), rectH = Math.max(1, Math.abs(y1 - y2));
+        var x = startX + j * (barW + gap);
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + rectY.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + rectH.toFixed(1) + '" fill="' + color + '" rx="1.5"/>';
+      }
+      labels += '<text x="' + gx.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-family="Space Mono, monospace" font-size="9.5" fill="var(--ink-soft)"' + (isSelected ? ' font-weight="700"' : '') + '>' + monthShort(s.ym) + '</text>';
+    });
+
+    holder.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monthly sales, cost and profit for the last six months">' +
+      '<line x1="' + padL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + zeroY.toFixed(1) + '" stroke="var(--line-strong)" stroke-width="1"/>' +
+      bars + labels + '</svg>';
+  }
+
+  function renderReport() {
+    var ym = document.getElementById("monthInputReport").value || currentMonth();
+    document.getElementById("monthInput").value = ym; // keep entries tab in sync with the report month
+    var list = entriesForMonth(ym);
+    document.getElementById("reportMonthLabel").textContent = monthLabel(ym);
+
+    var usedEstimate = false;
+    var byItem = {};
+    list.forEach(function (e) {
+      var unitCost;
+      if (e.cost != null) { unitCost = Number(e.cost); }
+      else {
+        var m = menuItems.find(function (x) { return x.id === e.menuItemId; });
+        unitCost = m ? Number(m.cost || 0) : 0;
+        usedEstimate = true;
+      }
+      var qty = Number(e.quantity || 0);
+      var sales = Number(e.amount || 0);
+      var cost = unitCost * qty;
+      byItem[e.itemName] = byItem[e.itemName] || { qty: 0, sales: 0, cost: 0, unit: e.unit };
+      byItem[e.itemName].qty += qty;
+      byItem[e.itemName].sales += sales;
+      byItem[e.itemName].cost += cost;
+    });
+    var itemRows = Object.keys(byItem).map(function (k) {
+      var r = Object.assign({ name: k }, byItem[k]);
+      r.profit = r.sales - r.cost;
+      return r;
+    }).sort(function (a, b) { return b.sales - a.sales; });
+
+    var totalSales = itemRows.reduce(function (s, r) { return s + r.sales; }, 0);
+    var totalCost = itemRows.reduce(function (s, r) { return s + r.cost; }, 0);
+    var totalProfit = totalSales - totalCost;
+
+    document.getElementById("rSales").textContent = money(totalSales);
+    document.getElementById("rCost").textContent = money(totalCost);
+    document.getElementById("rProfit").textContent = money(totalProfit);
+    document.getElementById("rProfit").className = "n mono " + (totalProfit >= 0 ? "pnl-pos" : "pnl-neg");
+    document.getElementById("rMargin").textContent = marginPct(totalProfit, totalSales) + "%";
+    document.getElementById("reportSubline").textContent = list.length + " sales order" + (list.length === 1 ? "" : "s") + " logged across " + itemRows.length + " menu item" + (itemRows.length === 1 ? "" : "s") + ".";
+    document.getElementById("costEstimateNote").hidden = !usedEstimate;
+
+    var tbody = document.getElementById("itemBreakdownBody");
+    tbody.innerHTML = itemRows.map(function (r) {
+      var m = marginPct(r.profit, r.sales);
+      var pnlClass = r.profit >= 0 ? "pnl-pos" : "pnl-neg";
+      var itemCat = (menuItems.find(function (x) { return x.name === r.name; }) || {}).category;
+      return '<tr><td>' + catDot(itemCat) + escapeHtml(r.name) + '</td><td class="num">' + r.qty + ' ' + escapeHtml(r.unit) + '</td><td class="num">' + money(r.sales) + '</td>' +
+        '<td class="num">' + money(r.cost) + '</td><td class="num ' + pnlClass + '">' + money(r.profit) + '</td><td class="num ' + pnlClass + '">' + m + '%</td></tr>';
+    }).join("");
+    document.getElementById("itemBreakdownTotalQty").textContent = "";
+    document.getElementById("itemBreakdownTotalAmt").textContent = money(totalSales);
+    document.getElementById("itemBreakdownTotalCost").textContent = money(totalCost);
+    document.getElementById("itemBreakdownTotalProfit").textContent = money(totalProfit);
+    document.getElementById("itemBreakdownTotalMargin").textContent = marginPct(totalProfit, totalSales) + "%";
+
+    var byPartner = {};
+    list.forEach(function (e) {
+      var key = e.loggedByName || e.loggedBy || "—";
+      byPartner[key] = byPartner[key] || { count: 0, amount: 0 };
+      byPartner[key].count += 1; byPartner[key].amount += Number(e.amount || 0);
+    });
+    var partnerRows = Object.keys(byPartner).map(function (k) { return Object.assign({ name: k }, byPartner[k]); }).sort(function (a, b) { return b.amount - a.amount; });
+    document.getElementById("partnerBreakdownBody").innerHTML = partnerRows.map(function (r) {
+      var pct = totalSales ? Math.round((r.amount / totalSales) * 100) : 0;
+      return '<tr><td>' + escapeHtml(r.name) + '</td><td class="num">' + r.count + '</td><td class="num">' + money(r.amount) + '</td>' +
+        '<td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div><span class="mono" style="font-size:.72rem;color:var(--ink-soft);">' + pct + '%</span></div></td></tr>';
+    }).join("");
+
+    document.getElementById("reportEmpty").hidden = list.length !== 0;
+    document.querySelectorAll(".report-section").forEach(function (s) { s.hidden = list.length === 0; });
+  }
+
+  function renderHome() {
+    var cm = currentMonth();
+    var s = computeMonthlySeries(cm, 1)[0];
+    document.getElementById("homeMonthLabel").textContent = monthLabel(cm);
+    document.getElementById("hSales").textContent = money(s.sales);
+    document.getElementById("hCost").textContent = money(s.cost);
+    document.getElementById("hProfit").textContent = money(s.profit);
+    document.getElementById("hProfit").className = "n mono " + (s.profit >= 0 ? "pnl-pos" : "pnl-neg");
+    document.getElementById("hMargin").textContent = marginPct(s.profit, s.sales) + "%";
+    renderMonthlyChart();
+  }
+
+  function boot() {
+    var saved = loadSession();
+    if (saved && saved.username && saved.workspace) {
+      db.doc("users/" + saved.username).get().then(function (snap) {
+        if (snap.exists) enterApp({ username: saved.username, displayName: snap.data().displayName || saved.username, workspace: saved.workspace });
+        else clearSession();
+      }).catch(function () {});
+    }
+  }
+
+  initDb();
+})();
+</script>
